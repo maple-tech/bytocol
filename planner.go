@@ -3,6 +3,7 @@ package bytocol
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"reflect"
 	"slices"
 	"strconv"
@@ -340,15 +341,17 @@ func (ep *TypePlan) planObject(obj any) error {
 	return nil
 }
 
-// Marshal executes an encoding plan using the given object as a value for the
-// plan and returns the byte representation of it. The type of the object must
+// Write executes an encoding plan using the given object as a value for the
+// plan and writes the bytes to the given [io.Writer]. The type of the object must
 // match the type for the plan.
-func (ep TypePlan) Marshal(obj Message) ([]byte, error) {
-	var buf bytes.Buffer
+func (ep TypePlan) Write(obj Message, w io.Writer) error {
 	var err error
 
 	// Write the type indicator first
-	buf.WriteByte(ep.typeIndicator)
+	_, err = w.Write([]byte{ep.typeIndicator})
+	if err != nil {
+		return err
+	}
 
 	// Figure out the object type
 	valueOf := reflect.ValueOf(obj)
@@ -358,7 +361,7 @@ func (ep TypePlan) Marshal(obj Message) ([]byte, error) {
 
 	typeOf := valueOf.Type()
 	if typeOf != ep.typeOf {
-		return nil, ErrNonMatchingType
+		return ErrNonMatchingType
 	}
 
 	for _, entry := range ep.entries {
@@ -366,48 +369,48 @@ func (ep TypePlan) Marshal(obj Message) ([]byte, error) {
 
 		switch entry.Field.Type.Kind() {
 		case reflect.Bool:
-			err = writeNumber(boolToByte(fieldValue.Bool()), &buf)
+			err = writeNumber(boolToByte(fieldValue.Bool()), w)
 
 		case reflect.Uint8:
 			casted, _ := fieldValue.Interface().(uint8)
-			err = writeNumber(casted, &buf)
+			err = writeNumber(casted, w)
 		case reflect.Uint16:
 			casted, _ := fieldValue.Interface().(uint16)
-			err = writeNumber(casted, &buf)
+			err = writeNumber(casted, w)
 		case reflect.Uint32:
 			casted, _ := fieldValue.Interface().(uint32)
-			err = writeNumber(casted, &buf)
+			err = writeNumber(casted, w)
 		case reflect.Uint64, reflect.Uint:
 			casted, _ := fieldValue.Interface().(uint64)
-			err = writeNumber(casted, &buf)
+			err = writeNumber(casted, w)
 
 		case reflect.Int8:
 			casted, _ := fieldValue.Interface().(int8)
-			err = writeNumber(casted, &buf)
+			err = writeNumber(casted, w)
 		case reflect.Int16:
 			casted, _ := fieldValue.Interface().(int16)
-			err = writeNumber(casted, &buf)
+			err = writeNumber(casted, w)
 		case reflect.Int32:
 			casted, _ := fieldValue.Interface().(int32)
-			err = writeNumber(casted, &buf)
+			err = writeNumber(casted, w)
 		case reflect.Int64, reflect.Int:
 			casted, _ := fieldValue.Interface().(int64)
-			err = writeNumber(casted, &buf)
+			err = writeNumber(casted, w)
 
 		case reflect.Float32:
 			casted, _ := fieldValue.Interface().(float32)
-			err = writeNumber(casted, &buf)
+			err = writeNumber(casted, w)
 		case reflect.Float64:
 			casted, _ := fieldValue.Interface().(float64)
-			err = writeNumber(casted, &buf)
+			err = writeNumber(casted, w)
 
 		case reflect.String:
-			err = writeBlob(fieldValue.String(), entry.LengthBits, &buf)
+			err = writeBlob(fieldValue.String(), entry.LengthBits, w)
 		case reflect.Slice:
 			elem := entry.Field.Type.Elem()
 			if elem.Kind() == reflect.Uint8 {
 				// Byte slice, use the blob method
-				err = writeBlob(fieldValue.Bytes(), entry.LengthBits, &buf)
+				err = writeBlob(fieldValue.Bytes(), entry.LengthBits, w)
 			} else {
 				// UNIMPLEMENTED
 				err = fmt.Errorf("bytocol: unsupported slice type %s", elem.String())
@@ -417,11 +420,20 @@ func (ep TypePlan) Marshal(obj Message) ([]byte, error) {
 		}
 
 		if err != nil {
-			return buf.Bytes(), err
+			break
 		}
 	}
 
-	return buf.Bytes(), nil
+	return err
+}
+
+// Marshal executes an encoding plan using the given object as a value for the
+// plan and returns the byte representation of it. The type of the object must
+// match the type for the plan.
+func (ep TypePlan) Marshal(obj Message) ([]byte, error) {
+	var buf bytes.Buffer
+	err := ep.Write(obj, &buf)
+	return buf.Bytes(), err
 }
 
 // PlanType creates a new [TypePlan] based on the generic argument provided.
