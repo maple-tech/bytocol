@@ -14,7 +14,7 @@ import (
 // The object must implement [bytocol.Message] interface.
 //
 // NOTE: This will run the reflection processes on every object entered.
-func Encode(obj Message) ([]byte, error) {
+func Marshal(obj Message) ([]byte, error) {
 	var buf bytes.Buffer
 
 	// Write the type-indicator byte from the message info
@@ -52,7 +52,7 @@ func Encode(obj Message) ([]byte, error) {
 // cache the encoding plan. Additionally, the byte data is allocated in-memory
 // and not streamed directly.
 func Write(obj Message, w io.Writer) error {
-	data, err := Encode(obj)
+	data, err := Marshal(obj)
 	if err != nil {
 		return err
 	}

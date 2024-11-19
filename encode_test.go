@@ -19,10 +19,10 @@ func (m testMessage) BytocolMessage() MessageInfo {
 	return MessageInfo{1, "test"}
 }
 
-func TestEncode(t *testing.T) {
+func TestMarshal(t *testing.T) {
 	obj := testMessage{0, true, 1234, 4321, math.Pi, "Foo", []byte("Bar")}
 
-	data, err := Encode(obj)
+	data, err := Marshal(obj)
 	if err != nil {
 		t.Error(err)
 		return
