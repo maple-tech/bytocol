@@ -10,10 +10,12 @@ func TestMakePlan(t *testing.T) {
 	}
 
 	type Good struct {
-		NonPlanned  int
-		Exported    int    `bytocol:"1"`
-		Str         string `bytocol:"0,length-prefix=8"`
-		nonExported int    `bytocol:"2"`
+		NonPlanned int
+		Exported   int    `bytocol:"1"`
+		Str        string `bytocol:"0,length-prefix=8"`
+
+		//lint:ignore U1000 This is a test file
+		nonExported int `bytocol:"2"`
 	}
 	good := Good{
 		NonPlanned: 3,
