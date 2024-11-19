@@ -10,6 +10,10 @@ var (
 
 	// Error indicating a type is not valid for encoding/decoding
 	ErrNonStruct = errors.New("cannot encode/decode non-struct type")
+
+	// Error indicating the object provided for a plan does not match the type
+	// that was used to create the plan.
+	ErrNonMatchingType = errors.New("type of object does not match plan type")
 )
 
 // ErrorMessage is a provided message type built-in for bytocol that wraps a

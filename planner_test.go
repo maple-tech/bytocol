@@ -2,10 +2,10 @@ package bytocol
 
 import "testing"
 
-func TestMakePlan(t *testing.T) {
+func TestPlanEntries(t *testing.T) {
 	// Catch non-struct objects
-	_, err := makePlan([]byte{})
-	if err == nil {
+	plan := new(TypePlan)
+	if err := plan.planObject([]byte{}); err == nil {
 		t.Error("expected error on non-struct")
 	}
 
@@ -24,14 +24,14 @@ func TestMakePlan(t *testing.T) {
 	}
 
 	// Ensure accepts pointers
-	plan, err := makePlan(&good)
+	err := plan.planObject(&good)
 	if err != nil {
 		t.Error(err)
-	} else if len(plan) != 2 {
-		t.Errorf("expected 2 plan entries, got %d", len(plan))
+	} else if len(plan.entries) != 2 {
+		t.Errorf("expected 2 plan entries, got %d", len(plan.entries))
 	} else {
 		// Check plan
-		if plan[0].FieldIndex != 2 {
+		if plan.entries[0].FieldIndex != 2 {
 			t.Error("plan is out of order")
 			return
 		}
@@ -44,7 +44,7 @@ func TestMakePlan(t *testing.T) {
 		Third  int `bytocol:"1"`
 		Fourth int `bytocol:"2"`
 	}
-	_, err = makePlan(Duplicated{})
+	err = plan.planObject(Duplicated{})
 	if err == nil {
 		t.Error("expected error for duplicate order")
 	}
@@ -53,7 +53,7 @@ func TestMakePlan(t *testing.T) {
 	type BadTags struct {
 		Foo int `bytocol:"-1"`
 	}
-	_, err = makePlan(BadTags{})
+	err = plan.planObject(BadTags{})
 	if err == nil {
 		t.Error("expected error for bad tag")
 	}
