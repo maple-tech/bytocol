@@ -13,6 +13,13 @@ type number interface {
 		float32 | float64
 }
 
+func boolToByte(b bool) byte {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 func numberToBytes[T number](num T) []byte {
 	var data []byte
 

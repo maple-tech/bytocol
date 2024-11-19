@@ -36,9 +36,10 @@ func makePlan(obj any) (encodingPlan, error) {
 	var entry planEntry
 	for i := 0; i < typOf.NumField(); i++ {
 		entry = planEntry{
-			FieldIndex: i,
-			ValueOf:    valOf.Field(i),
-			TypeOf:     typOf.Field(i),
+			FieldIndex:       i,
+			ValueOf:          valOf.Field(i),
+			TypeOf:           typOf.Field(i),
+			StringLengthSize: 64,
 		}
 
 		if !entry.TypeOf.IsExported() {

@@ -46,24 +46,40 @@ multiple options they are comma separated.
 
 | Option Key | Description | Accepts Value | Value Type |
 |:-----------|:------------|:-------------:|:-----------|
-| `null-terminated` | String is encoded as null terminated | No |   |
 | `length-prefix`   | Bit-size of length preceded this value | Yes | 8, 16, 32, 64 |
 
 ### Data Types
 
 Most primitive types are encoded with reasonable defaults based on their type,
 strings are the trickier ones since they are encoded as byte data blobs and as
-such need some way to indicate their length. For strings, it is recommended to
-use the `length-prefix` option with a reasonable size for the maximum length.
+such need some way to indicate their length. For strings, the default is `length-prefix`
+with a 64-bit size, you can override this with the tag option.
+
+#### Numerical Types
 
 All numerical types are encoded as Big-Endian bytes up to their data size. For
-instance, a signed 32-bit integer will be encoded as 4 bytes. To prevent platform differences, the `int` and `uint` types are transmitted as 64-bit values.
+instance, a signed 32-bit integer will be encoded as 4 bytes. To prevent platform
+differences, the `int` and `uint` types are transmitted as 64-bit values.
 
-Booleans are single byte values for transmission sake.
+#### Booleans
+
+Booleans are single byte values for transmission sake. 1 for true, 0 for false.
+
+#### Byte Data
+
+Raw byte slices as `[]byte` are default encoded just like strings and use the
+`length-prefix=64` tag as a default value. This means they are preceded with an
+unsigned integer indicating their byte length (by default this is 64-bit). If
+you have size limitations you can lower this by setting the `length-prefix` value
+on the tag.
+
+#### Interfaces, Structs, Maps, Slices
 
 Any interfaces, structs, maps, slices, and arrays are transmitted using the `gob.Encode`
 encoder. This may change in the future, but this makes it easier for this first
 version.
+
+#### Error Type
 
 Standard `error` types can be wrapped with the provided `bytocol.Error` function
 which converts it into `bytcol.ErrorMessage` for transmission. This type uses
