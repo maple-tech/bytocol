@@ -20,7 +20,7 @@ func Encode(obj Message) ([]byte, error) {
 
 	// Write the type-indicator byte from the message info
 	msgInfo := obj.BytocolMessage()
-	writeNumber(msgInfo.TypeIndicator, &buf)
+	buf.WriteByte(msgInfo.TypeIndicator)
 
 	// Build an encoding plan containing values in order with their
 	// values, types, and encoding options.
@@ -33,10 +33,6 @@ func Encode(obj Message) ([]byte, error) {
 
 	// Run through the plan, encoding each based on the type.
 	for _, entry := range plan {
-		if entry.ValueOf.IsNil() {
-			continue
-		}
-
 		switch entry.TypeOf.Type.Kind() {
 		case reflect.Bool:
 			err = writeNumber(boolToByte(entry.ValueOf.Bool()), &buf)
@@ -47,7 +43,16 @@ func Encode(obj Message) ([]byte, error) {
 		case reflect.Float32, reflect.Float64:
 			err = writeNumber(entry.ValueOf.Float(), &buf)
 		case reflect.String:
-			err = writeBlob(entry.ValueOf.String(), entry.StringLengthSize, &buf)
+			err = writeBlob(entry.ValueOf.String(), entry.LengthBits, &buf)
+		case reflect.Slice:
+			elem := entry.TypeOf.Type.Elem()
+			if elem.Kind() == reflect.Uint8 {
+				// Byte slice, use the blob method
+				err = writeBlob(entry.ValueOf.Bytes(), entry.LengthBits, &buf)
+			} else {
+				// UNIMPLEMENTED
+				err = fmt.Errorf("bytocol: unsupported slice type %s", elem.String())
+			}
 		default:
 			err = fmt.Errorf("bytocol: unsupported encode type %s", entry.TypeOf.Type.String())
 		}
