@@ -19,14 +19,16 @@ func (m testMessage) BytocolMessage() MessageInfo {
 	return MessageInfo{1, "test"}
 }
 
-func TestMarshal(t *testing.T) {
-	obj := testMessage{0, true, 1234, 4321, math.Pi, "Foo", []byte("Bar")}
+var testMessageObj = testMessage{0, true, 1234, 4321, math.Pi, "Foo", []byte("Bar")}
 
-	data, err := Marshal(obj)
+const testMessageLength = 1 + (1 + 2 + 8 + 4 + (8 + 3) + (8 + 3))
+
+func TestMarshal(t *testing.T) {
+	data, err := Marshal(testMessageObj)
 	if err != nil {
 		t.Error(err)
 		return
-	} else if len(data) != 1+(1+2+8+4+(8+3)+(8+3)) {
+	} else if len(data) != testMessageLength {
 		t.Errorf("unexpected length %d: %v", len(data), data)
 	}
 }

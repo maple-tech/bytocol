@@ -5,13 +5,34 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strconv"
+	"strings"
 )
 
 type planEntry struct {
 	FieldIndex int
 	Field      reflect.StructField
 	Order      uint
+	Size       uint
+	VarLength  bool
 	LengthBits byte
+}
+
+func (pe planEntry) String() string {
+	var str strings.Builder
+
+	str.WriteString(strconv.FormatUint(uint64(pe.Order), 10))
+	str.WriteByte(' ')
+	str.WriteString(pe.Field.Name)
+	str.WriteByte(' ')
+	str.WriteString(pe.Field.Type.String())
+	str.WriteByte(' ')
+	str.WriteString(strconv.FormatUint(uint64(pe.Size), 10))
+	if pe.VarLength {
+		str.WriteByte('+')
+	}
+
+	return str.String()
 }
 
 // TypePlan is a cached plan for how to encode/decode a given Message type.
@@ -20,12 +41,189 @@ type TypePlan struct {
 	typeIndicator byte
 	debugName     string
 	entries       []planEntry
+	size          uint
+	varLength     bool
 }
 
 // IsValid returns true if this [TypePlan] is considered valid. It is valid if
 // there is a type assigned and number of fields is not zero.
 func (ep TypePlan) IsValid() bool {
 	return ep.typeOf != nil && len(ep.entries) > 0
+}
+
+// String returns a human-friendly multi-line string outlining the fields, their
+// sizes, and types.
+func (ep TypePlan) String() string {
+	if !ep.IsValid() {
+		return "Invalid Plan"
+	}
+
+	var str strings.Builder
+
+	// Header
+	str.WriteString("Type plan for ")
+	str.WriteString(ep.typeOf.Name())
+	str.WriteString(" (type=")
+	str.WriteString(strconv.FormatUint(uint64(ep.typeIndicator), 10))
+	str.WriteString(", name=")
+	str.WriteString(ep.debugName)
+
+	if ep.varLength {
+		str.WriteString(", min-size=")
+		str.WriteString(strconv.FormatUint(uint64(ep.size), 10))
+		str.WriteString(", varlen")
+	} else {
+		str.WriteString(", size=")
+		str.WriteString(strconv.FormatUint(uint64(ep.size), 10))
+	}
+
+	str.WriteString("):")
+	str.WriteByte('\n')
+
+	// Loop through entries
+	for i, entry := range ep.entries {
+		str.WriteString("| ")
+		str.WriteString(entry.String())
+
+		if i < len(ep.entries)-1 {
+			str.WriteByte(' ')
+		} else {
+			str.WriteString(" |")
+		}
+	}
+
+	return str.String()
+}
+
+// Type returns the underlying [reflect.Type] that this plan represents.
+func (ep TypePlan) Type() reflect.Type {
+	return ep.typeOf
+}
+
+// TypeIndicator returns the byte for the message type indicator that will
+// be used during transmission. This is equivalent to the [Message] type indicator.
+func (ep TypePlan) TypeIndicator() byte {
+	return ep.typeIndicator
+}
+
+// Name returns the debug name declared by the [Message] when the plan was
+// made.
+func (ep TypePlan) Name() string {
+	return ep.debugName
+}
+
+// Size returns the total byte size of a message encoded.
+func (ep TypePlan) Size() uint {
+	return ep.size
+}
+
+// Explain is used to debug byte data that should represent the type and group it
+// against the debug string diagram of the plan. It returns a new human-readable
+// explanation as a string that can be printed.
+func (ep TypePlan) Explain(data []byte) string {
+	if len(data) < int(ep.size) {
+		return fmt.Sprintf("Invalid data size %d compared to minimum size %d", len(data), ep.size)
+	}
+
+	var str strings.Builder
+
+	typeIndicator := data[0]
+	str.WriteString("Type Indicator = ")
+	str.WriteString(fmt.Sprintf("%03d", typeIndicator))
+	str.WriteByte('\n')
+
+	// TODO: Replace this with a tabular table builder.
+	// Probably something with a []column kind of type
+
+	// Break down the bytes into their groups, start at 1 because
+	// the first is the type indicator
+	offset := 1
+	for _, entry := range ep.entries {
+		str.WriteString(entry.String())
+		str.WriteString(" = ")
+
+		byteLength := int(entry.Size)
+
+		// Check if this is a variable length entry
+		if entry.VarLength {
+			// Protect against overflow
+			if (offset + byteLength) >= len(data) {
+				str.WriteString("DATA OVERFLOW")
+				break
+			}
+
+			// The size indicates the length prefix, decode that now
+			var length uint64
+			if entry.Size == 1 {
+				length = uint64(data[offset])
+				offset++
+			} else if entry.Size == 2 {
+				raw, err := bytesToNumber[uint16](data[offset : offset+2])
+				if err != nil {
+					str.WriteString("ERROR PARSING LENGTH")
+				} else {
+					length = uint64(raw)
+				}
+				offset += 2
+			} else if entry.Size == 4 {
+				raw, err := bytesToNumber[uint32](data[offset : offset+4])
+				if err != nil {
+					str.WriteString("ERROR PARSING LENGTH")
+				} else {
+					length = uint64(raw)
+				}
+				offset += 4
+			} else if entry.Size == 8 {
+				raw, err := bytesToNumber[uint64](data[offset : offset+8])
+				if err != nil {
+					str.WriteString("ERROR PARSING LENGTH")
+				} else {
+					length = uint64(raw)
+				}
+				offset += 8
+			}
+
+			// Print the length first
+			str.WriteString("Length=")
+			str.WriteString(strconv.FormatUint(length, 10))
+			str.WriteString(", ")
+
+			byteLength = int(length)
+		}
+
+		// Print out the bytes
+		maxOffset := (offset + byteLength)
+		for j := offset; j < maxOffset; j++ {
+			if j >= len(data) {
+				str.WriteString("EOD")
+				break
+			}
+
+			str.WriteString(fmt.Sprintf("%03d", data[j]))
+			if j < maxOffset-1 {
+				str.WriteByte(' ')
+			}
+		}
+
+		// If it was a string print it now
+		if entry.Field.Type.Kind() == reflect.String {
+			str.WriteString(` "`)
+			str.WriteString(string(data[offset : offset+byteLength]))
+			str.WriteByte('"')
+		}
+
+		offset += byteLength
+
+		str.WriteByte('\n')
+	}
+
+	if offset < len(data) {
+		str.WriteString(fmt.Sprintf("\n%d bytes remaining", len(data)-offset))
+	} else {
+		str.WriteString(fmt.Sprintf("All bytes accounted for, total length %d bytes", offset))
+	}
+
+	return str.String()
 }
 
 // fillTopLevel grabs the [MessageInfo] data from the [Message] interface
@@ -58,6 +256,8 @@ func (ep *TypePlan) planObject(obj any) error {
 		return ErrNonStruct
 	}
 
+	ep.size = 0
+
 	// Iterate over all the fields and save them to the plan entries
 	var entry planEntry
 	for i := 0; i < ep.typeOf.NumField(); i++ {
@@ -83,6 +283,39 @@ func (ep *TypePlan) planObject(obj any) error {
 
 		// Apply the order from the tag
 		entry.Order = tagInfo.Order
+
+		// Figure out the encoding size and type
+		switch entry.Field.Type.Kind() {
+		case reflect.Bool, reflect.Uint8:
+			entry.Size = 1
+		case reflect.Uint16, reflect.Int16:
+			entry.Size = 2
+		case reflect.Uint32, reflect.Int32, reflect.Float32:
+			entry.Size = 4
+		case reflect.Uint64, reflect.Uint, reflect.Int64, reflect.Int, reflect.Float64:
+			entry.Size = 8
+		case reflect.String:
+			entry.Size = uint(entry.LengthBits / 8)
+			entry.VarLength = true
+			ep.varLength = true
+		case reflect.Slice:
+			elem := entry.Field.Type.Elem()
+			if elem.Kind() == reflect.Uint8 {
+				entry.Size = uint(entry.LengthBits / 8)
+				entry.VarLength = true
+			} else {
+				// UNIMPLEMENTED
+				err = fmt.Errorf("bytocol: unsupported slice type %s", elem.String())
+			}
+			ep.varLength = true
+		default:
+			err = fmt.Errorf("bytocol: unsupported encode type %s", entry.Field.Type.String())
+		}
+
+		if err != nil {
+			return err
+		}
+		ep.size += entry.Size
 
 		// Save the plan entry
 		ep.entries = append(ep.entries, entry)
@@ -114,6 +347,10 @@ func (ep TypePlan) Marshal(obj Message) ([]byte, error) {
 	var buf bytes.Buffer
 	var err error
 
+	// Write the type indicator first
+	buf.WriteByte(ep.typeIndicator)
+
+	// Figure out the object type
 	valueOf := reflect.ValueOf(obj)
 	if valueOf.Type().Kind() == reflect.Pointer {
 		valueOf = valueOf.Elem()
@@ -130,12 +367,40 @@ func (ep TypePlan) Marshal(obj Message) ([]byte, error) {
 		switch entry.Field.Type.Kind() {
 		case reflect.Bool:
 			err = writeNumber(boolToByte(fieldValue.Bool()), &buf)
-		case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uint:
-			err = writeNumber(fieldValue.Uint(), &buf)
-		case reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Int:
-			err = writeNumber(fieldValue.Int(), &buf)
-		case reflect.Float32, reflect.Float64:
-			err = writeNumber(fieldValue.Float(), &buf)
+
+		case reflect.Uint8:
+			casted, _ := fieldValue.Interface().(uint8)
+			err = writeNumber(casted, &buf)
+		case reflect.Uint16:
+			casted, _ := fieldValue.Interface().(uint16)
+			err = writeNumber(casted, &buf)
+		case reflect.Uint32:
+			casted, _ := fieldValue.Interface().(uint32)
+			err = writeNumber(casted, &buf)
+		case reflect.Uint64, reflect.Uint:
+			casted, _ := fieldValue.Interface().(uint64)
+			err = writeNumber(casted, &buf)
+
+		case reflect.Int8:
+			casted, _ := fieldValue.Interface().(int8)
+			err = writeNumber(casted, &buf)
+		case reflect.Int16:
+			casted, _ := fieldValue.Interface().(int16)
+			err = writeNumber(casted, &buf)
+		case reflect.Int32:
+			casted, _ := fieldValue.Interface().(int32)
+			err = writeNumber(casted, &buf)
+		case reflect.Int64, reflect.Int:
+			casted, _ := fieldValue.Interface().(int64)
+			err = writeNumber(casted, &buf)
+
+		case reflect.Float32:
+			casted, _ := fieldValue.Interface().(float32)
+			err = writeNumber(casted, &buf)
+		case reflect.Float64:
+			casted, _ := fieldValue.Interface().(float64)
+			err = writeNumber(casted, &buf)
+
 		case reflect.String:
 			err = writeBlob(fieldValue.String(), entry.LengthBits, &buf)
 		case reflect.Slice:

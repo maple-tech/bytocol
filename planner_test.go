@@ -1,6 +1,8 @@
 package bytocol
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestPlanEntries(t *testing.T) {
 	// Catch non-struct objects
@@ -56,5 +58,25 @@ func TestPlanEntries(t *testing.T) {
 	err = plan.planObject(BadTags{})
 	if err == nil {
 		t.Error("expected error for bad tag")
+	}
+}
+
+func TestPlanMarshal(t *testing.T) {
+	plan, err := PlanObject(testMessageObj)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	data, err := plan.Marshal(&testMessageObj)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if len(data) != testMessageLength {
+		t.Errorf("unexpected length %d: %v", len(data), data)
+		t.Log(plan.String())
+		t.Log(plan.Explain(data))
 	}
 }
