@@ -17,9 +17,9 @@ import (
 func Marshal(obj Message) ([]byte, error) {
 	var buf bytes.Buffer
 
-	// Write the type-indicator byte from the message info
+	// Grab the message info for the error messages, the plan will
+	// write the actual type indicator
 	msgInfo := obj.BytocolMessage()
-	buf.WriteByte(msgInfo.TypeIndicator)
 
 	// Build an encoding plan containing values in order with their
 	// values, types, and encoding options.
