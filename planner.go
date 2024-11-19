@@ -18,6 +18,7 @@ type planEntry struct {
 type TypePlan struct {
 	typeOf        reflect.Type
 	typeIndicator byte
+	debugName     string
 	entries       []planEntry
 }
 
@@ -25,6 +26,21 @@ type TypePlan struct {
 // there is a type assigned and number of fields is not zero.
 func (ep TypePlan) IsValid() bool {
 	return ep.typeOf != nil && len(ep.entries) > 0
+}
+
+// fillTopLevel grabs the [MessageInfo] data from the [Message] interface
+// for the object provided. If the object does not implement the interface,
+// an [ErrNonMessageType] error is returned.
+func (ep *TypePlan) fillTopLevel(obj any) error {
+	// Extract the top-level information
+	if asMessage, ok := obj.(Message); ok {
+		msgInfo := asMessage.BytocolMessage()
+		ep.typeIndicator = msgInfo.TypeIndicator
+		ep.debugName = msgInfo.DebugName
+	} else {
+		return ErrNonMessageType
+	}
+	return nil
 }
 
 // planObject internally sets all the variables for this [TypePlan] based on
@@ -41,9 +57,6 @@ func (ep *TypePlan) planObject(obj any) error {
 	if ep.typeOf.Kind() != reflect.Struct {
 		return ErrNonStruct
 	}
-
-	// Extract the top-level information
-	// TODO
 
 	// Iterate over all the fields and save them to the plan entries
 	var entry planEntry
@@ -153,6 +166,11 @@ func (ep TypePlan) Marshal(obj Message) ([]byte, error) {
 func PlanType[T Message]() (*TypePlan, error) {
 	var zeroValue T
 	plan := new(TypePlan)
+
+	if err := plan.fillTopLevel(zeroValue); err != nil {
+		return nil, err
+	}
+
 	if err := plan.planObject(zeroValue); err != nil {
 		return nil, err
 	}
@@ -164,6 +182,11 @@ func PlanType[T Message]() (*TypePlan, error) {
 // are returned.
 func PlanObject(obj Message) (*TypePlan, error) {
 	plan := new(TypePlan)
+
+	if err := plan.fillTopLevel(obj); err != nil {
+		return nil, err
+	}
+
 	if err := plan.planObject(obj); err != nil {
 		return nil, err
 	}
