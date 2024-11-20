@@ -59,10 +59,6 @@ func (pe planEntry) readBytes(r io.Reader) ([]byte, error) {
 		contentSize = binary.BigEndian.Uint64(lenBuf)
 	}
 
-	if contentSize < 0 || contentSize > 1000 {
-		return nil, fmt.Errorf("content size way to big: %d, %v", contentSize, lenBuf)
-	}
-
 	// Read the remaining content based on content size
 	contentBuffer := make([]byte, contentSize)
 	n, err := r.Read(contentBuffer)
