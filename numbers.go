@@ -2,9 +2,11 @@ package bytocol
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"math"
+	"reflect"
 )
 
 type number interface {
@@ -32,7 +34,7 @@ func numberToBytes[T number](num T) []byte {
 	case uint32, int32:
 		data = make([]byte, 4)
 		binary.BigEndian.PutUint32(data, uint32(num))
-	case uint64, int64:
+	case uint64, int64, uint, int:
 		data = make([]byte, 8)
 		binary.BigEndian.PutUint64(data, uint64(num))
 	case float32:
@@ -118,4 +120,30 @@ func readNumber[T number](r io.Reader) (T, error) {
 		}
 	}
 	return value, err
+}
+
+func setNumberFromBytes[T number](data []byte, target reflect.Value) error {
+	num, err := bytesToNumber[T](data)
+	if err != nil {
+		return err
+	}
+
+	if target.Type().Kind() == reflect.Pointer {
+		target = target.Elem()
+	}
+
+	if !target.CanSet() {
+		return errors.New("cannot set value, un-addressable")
+	}
+
+	switch any(num).(type) {
+	case uint8, uint16, uint32, uint64, uint:
+		target.SetUint(uint64(num))
+	case int8, int16, int32, int64, int:
+		target.SetInt(int64(num))
+	case float32, float64:
+		target.SetFloat(float64(num))
+	}
+
+	return nil
 }

@@ -2,6 +2,7 @@ package bytocol
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"reflect"
@@ -34,6 +35,41 @@ func (pe planEntry) String() string {
 	}
 
 	return str.String()
+}
+
+func (pe planEntry) readBytes(r io.Reader) ([]byte, error) {
+	// Read the unsigned integer length prefix
+	lenSize := int(pe.LengthBits / 8)
+	lenBuf := make([]byte, lenSize)
+	_, err := r.Read(lenBuf)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert read bytes into proper integer size
+	var contentSize uint64
+	switch lenSize {
+	case 1:
+		contentSize = uint64(lenBuf[0])
+	case 2:
+		contentSize = uint64(binary.BigEndian.Uint16(lenBuf))
+	case 4:
+		contentSize = uint64(binary.BigEndian.Uint32(lenBuf))
+	case 8:
+		contentSize = binary.BigEndian.Uint64(lenBuf)
+	}
+
+	if contentSize < 0 || contentSize > 1000 {
+		return nil, fmt.Errorf("content size way to big: %d, %v", contentSize, lenBuf)
+	}
+
+	// Read the remaining content based on content size
+	contentBuffer := make([]byte, contentSize)
+	n, err := r.Read(contentBuffer)
+	if err == nil && n != len(contentBuffer) {
+		return contentBuffer, ErrReadInvariance
+	}
+	return contentBuffer, err
 }
 
 // TypePlan is a cached plan for how to encode/decode a given Message type.
@@ -434,6 +470,161 @@ func (ep TypePlan) Marshal(obj Message) ([]byte, error) {
 	var buf bytes.Buffer
 	err := ep.Write(obj, &buf)
 	return buf.Bytes(), err
+}
+
+// Read reads the bytes from the given [io.Reader] and unmarshal it into
+// the target [Message] object. The target must be a pointer and must be writable.
+// Because peeking will be required to deduce the type (and thus plan) to use, it
+// is required that the type indicator not be the first byte this will read from.
+// That is, remove the type-indicator from the read buffer first.
+func (ep TypePlan) Read(r io.Reader, target Message) error {
+	// Ensure the target is correct
+	valueOf := reflect.ValueOf(target)
+	if valueOf.Type().Kind() == reflect.Pointer {
+		if valueOf.IsNil() {
+			return ErrNilTarget
+		}
+
+		valueOf = valueOf.Elem()
+	}
+
+	typeOf := valueOf.Type()
+	if typeOf != ep.typeOf {
+		return ErrNonMatchingType
+	}
+
+	excerpt := make([]byte, 8)
+
+	var err error
+	for _, entry := range ep.entries {
+		field := valueOf.Field(entry.FieldIndex)
+		if !field.CanSet() {
+			return fmt.Errorf("field %s cannot be set", field.Type().Name())
+		}
+
+		switch field.Type().Kind() {
+		case reflect.Bool:
+			// Read 1 byte
+			_, err = r.Read(excerpt[:1])
+			if err != nil {
+				return fmt.Errorf("bytocol: error reading for field %s: %s", field.Type().Name(), err)
+			}
+
+			field.SetBool(excerpt[0] == 1)
+
+		case reflect.Uint8:
+			// Read 1 byte
+			_, err = r.Read(excerpt[:1])
+			if err != nil {
+				return fmt.Errorf("bytocol: error reading for field %s: %s", field.Type().Name(), err)
+			}
+			err = setNumberFromBytes[uint8](excerpt[:1], field)
+
+		case reflect.Uint16:
+			// Read 2 bytes
+			_, err = r.Read(excerpt[:2])
+			if err != nil {
+				return fmt.Errorf("bytocol: error reading for field %s: %s", field.Type().Name(), err)
+			}
+			err = setNumberFromBytes[uint16](excerpt[:2], field)
+		case reflect.Uint32:
+			// Read 4 bytes
+			_, err = r.Read(excerpt[:4])
+			if err != nil {
+				return fmt.Errorf("bytocol: error reading for field %s: %s", field.Type().Name(), err)
+			}
+			err = setNumberFromBytes[uint32](excerpt[:4], field)
+
+		case reflect.Uint64, reflect.Uint:
+			// Read 8 bytes
+			_, err = r.Read(excerpt[:8])
+			if err != nil {
+				return fmt.Errorf("bytocol: error reading for field %s: %s", field.Type().Name(), err)
+			}
+			err = setNumberFromBytes[uint64](excerpt[:8], field)
+
+		case reflect.Int8:
+			// Read 1 byte
+			_, err = r.Read(excerpt[:1])
+			if err != nil {
+				return fmt.Errorf("bytocol: error reading for field %s: %s", field.Type().Name(), err)
+			}
+			err = setNumberFromBytes[int8](excerpt[:1], field)
+		case reflect.Int16:
+			// Read 2 bytes
+			_, err = r.Read(excerpt[:2])
+			if err != nil {
+				return fmt.Errorf("bytocol: error reading for field %s: %s", field.Type().Name(), err)
+			}
+			err = setNumberFromBytes[int16](excerpt[:2], field)
+		case reflect.Int32:
+			// Read 4 bytes
+			_, err = r.Read(excerpt[:4])
+			if err != nil {
+				return fmt.Errorf("bytocol: error reading for field %s: %s", field.Type().Name(), err)
+			}
+			err = setNumberFromBytes[int32](excerpt[:4], field)
+		case reflect.Int64, reflect.Int:
+			// Read 8 bytes
+			_, err = r.Read(excerpt[:8])
+			if err != nil {
+				return fmt.Errorf("bytocol: error reading for field %s: %s", field.Type().Name(), err)
+			}
+			err = setNumberFromBytes[int64](excerpt[:8], field)
+
+		case reflect.Float32:
+			// Read 4 bytes
+			_, err = r.Read(excerpt[:4])
+			if err != nil {
+				return fmt.Errorf("bytocol: error reading for field %s: %s", field.Type().Name(), err)
+			}
+			err = setNumberFromBytes[float32](excerpt[:4], field)
+		case reflect.Float64:
+			// Read 8 bytes
+			_, err = r.Read(excerpt[:8])
+			if err != nil {
+				return fmt.Errorf("bytocol: error reading for field %s: %s", field.Type().Name(), err)
+			}
+			err = setNumberFromBytes[float64](excerpt[:8], field)
+
+		case reflect.String:
+			// Depending on field size, read N bytes
+			blob, err := entry.readBytes(r)
+			if err != nil {
+				return fmt.Errorf("bytocol: error reading for field %s: %s", field.Type().Name(), err)
+			}
+			field.SetString(string(blob))
+		case reflect.Slice:
+			elem := entry.Field.Type.Elem()
+			if elem.Kind() == reflect.Uint8 {
+				// Byte slice, use the blob method
+				blob, err := entry.readBytes(r)
+				if err != nil {
+					return fmt.Errorf("bytocol: error reading for field %s: %s", field.Type().Name(), err)
+				}
+				field.SetBytes(blob)
+			} else {
+				// UNIMPLEMENTED
+				err = fmt.Errorf("bytocol: unsupported slice type %s", elem.String())
+			}
+		default:
+			err = fmt.Errorf("bytocol: unsupported encode type %s", entry.Field.Type.String())
+		}
+
+		if err != nil {
+			break
+		}
+	}
+
+	return nil
+}
+
+// Unmarshal attempts to unserialize the given bytes into the target [Message]
+// object. The target must be a pointer, and must be writable. This internally
+// wraps the data in a [io.Reader] buffer and uses [TypePlan.Read].
+func (ep TypePlan) Unmarshal(data []byte, target Message) error {
+	buffer := bytes.NewBuffer(data)
+	return ep.Read(buffer, target)
 }
 
 // PlanType creates a new [TypePlan] based on the generic argument provided.

@@ -3,6 +3,7 @@ package bytocol
 import (
 	"bytes"
 	"math"
+	"reflect"
 	"testing"
 )
 
@@ -64,4 +65,16 @@ func TestNumbers(t *testing.T) {
 
 	testNumber(t, float32(math.Pi))
 	testNumber(t, float64(math.E))
+}
+
+func TestSetNumberFromBytes(t *testing.T) {
+	data := numberToBytes(float32(math.Pi))
+
+	var target float32
+	valueOf := reflect.ValueOf(&target)
+	if err := setNumberFromBytes[float32](data, valueOf); err != nil {
+		t.Error(err)
+	} else if target != float32(math.Pi) {
+		t.Error("value to not equate")
+	}
 }

@@ -1,6 +1,7 @@
 package bytocol
 
 import (
+	"bytes"
 	"testing"
 )
 
@@ -77,6 +78,53 @@ func TestPlanMarshal(t *testing.T) {
 	if len(data) != testMessageLength {
 		t.Errorf("unexpected length %d: %v", len(data), data)
 		t.Log(plan.String())
+		t.Log(plan.Explain(data))
+	}
+}
+
+func TestPlanUnmarshal(t *testing.T) {
+	// Marshal the test object to get byte data and proove
+	// cyclical behaviour
+	plan, err := PlanObject(testMessageObj)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	data, err := plan.Marshal(testMessageObj)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	// Unmarshal and check equivalence
+	var result testMessage
+	if err = plan.Unmarshal(data[1:], &result); err != nil {
+		t.Error(err)
+		t.Log(plan.Explain(data))
+		return
+	}
+
+	if result.Bool != testMessageObj.Bool {
+		t.Error("incorrect Bool")
+	}
+	if result.Int != testMessageObj.Int {
+		t.Errorf("incorrect Int %d", result.Int)
+	}
+	if result.Uint != testMessageObj.Uint {
+		t.Error("incorrect Uint")
+	}
+	if result.Float != testMessageObj.Float {
+		t.Error("incorrect Float")
+	}
+	if result.String != testMessageObj.String {
+		t.Error("incorrect String")
+	}
+	if !bytes.Equal(result.Bytes, testMessageObj.Bytes) {
+		t.Error("incorrect Bytes")
+	}
+
+	if t.Failed() {
 		t.Log(plan.Explain(data))
 	}
 }

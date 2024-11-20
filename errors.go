@@ -3,6 +3,10 @@ package bytocol
 import "errors"
 
 var (
+	// Error indicating that a read succeeded, but did not fill the expected content
+	// size based on the length provided.
+	ErrReadInvariance = errors.New("reading from pipe did not fill expected content size")
+
 	// Error indicating that something might have been written to the [io.Writer],
 	// but that the bytes written do not match the original byte length of the
 	// data sent.
@@ -18,6 +22,9 @@ var (
 	// Error indicating the object provided does not implement the [Message]
 	// interface.
 	ErrNonMessageType = errors.New("type of object does not implement Message interface")
+
+	// Error indicating that a nil pointer was supplied for unmarshaling
+	ErrNilTarget = errors.New("target for unmarshaling is nil")
 )
 
 // ErrorMessage is a provided message type built-in for bytocol that wraps a
