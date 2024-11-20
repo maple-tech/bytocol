@@ -412,8 +412,11 @@ func (ep TypePlan) Write(obj Message, w io.Writer) error {
 		case reflect.Uint32:
 			casted, _ := fieldValue.Interface().(uint32)
 			err = writeNumber(casted, w)
-		case reflect.Uint64, reflect.Uint:
+		case reflect.Uint64:
 			casted, _ := fieldValue.Interface().(uint64)
+			err = writeNumber(casted, w)
+		case reflect.Uint:
+			casted, _ := fieldValue.Interface().(uint)
 			err = writeNumber(casted, w)
 
 		case reflect.Int8:
@@ -425,8 +428,11 @@ func (ep TypePlan) Write(obj Message, w io.Writer) error {
 		case reflect.Int32:
 			casted, _ := fieldValue.Interface().(int32)
 			err = writeNumber(casted, w)
-		case reflect.Int64, reflect.Int:
+		case reflect.Int64:
 			casted, _ := fieldValue.Interface().(int64)
+			err = writeNumber(casted, w)
+		case reflect.Int:
+			casted, _ := fieldValue.Interface().(int)
 			err = writeNumber(casted, w)
 
 		case reflect.Float32:
